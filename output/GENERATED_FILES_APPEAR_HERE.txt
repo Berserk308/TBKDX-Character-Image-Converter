@@ -1,0 +1,20 @@
+TBKDX GENERATED OUTPUT
+======================
+
+The converter writes generated character folders here.
+
+Example:
+
+output/
+    Berserk/
+        spawn.png
+        art.png
+        icon.png
+        Credits.txt
+
+The converter also generates:
+
+    _conversion_report.txt
+
+Generated content in this folder is intentionally ignored by Git.
+This TXT file is kept only so the output folder remains visible in the repository.

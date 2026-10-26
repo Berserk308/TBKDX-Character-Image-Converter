@@ -1,0 +1,29 @@
+TBKDX ARTCARD INPUT
+===================
+
+Place Card Art source images in this folder.
+
+Generated file:
+    art.png
+
+Final canvas:
+    600 x 900
+
+If the source is already exactly 600 x 900, the converter preserves its layout.
+
+Other sizes are proportionally adapted, center-cropped to 444 x 296,
+and placed on the 600 x 900 transparent canvas at X=78, Y=82.
+
+Recommended filename:
+    ArtistCode_CharacterName.png
+
+For names containing underscores:
+    ArtistCode__Character_Name.png
+
+Optional credit markers:
+    _wdy
+    _hrdw
+    _wdy_hrdw
+
+This TXT file is intentionally tracked by Git.
+Real images in this folder are ignored by .gitignore.

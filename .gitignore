@@ -1,0 +1,55 @@
+# ============================================================
+# TBKDX Character Image Converter
+# Keep the repository code-only and avoid publishing artwork.
+# ============================================================
+
+# Real input artwork
+/input/Spawn/*
+!/input/Spawn/PUT_SPAWN_IMAGES_HERE.txt
+
+/input/artCard/*
+!/input/artCard/PUT_ARTCARD_IMAGES_HERE.txt
+
+/input/Icon/*
+!/input/Icon/PUT_ICON_IMAGES_HERE.txt
+
+# Generated converter output
+/output/*
+!/output/GENERATED_FILES_APPEAR_HERE.txt
+
+# PowerShell / temporary files
+*.tmp
+*.temp
+*.bak
+*.log
+*~
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editors / IDEs
+.vscode/
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Optional local ImageMagick / tools folders
+imagemagick/
+ImageMagick/
+tools/ImageMagick/
+
+# Archives created locally
+*.7z
+*.rar

@@ -1,0 +1,30 @@
+TBKDX SPAWN INPUT
+=================
+
+Place Spawn source images in this folder.
+
+Target generated file:
+    spawn.png
+
+Target size:
+    720 x 720
+
+Recommended filename:
+    ArtistCode_CharacterName.png
+
+Example:
+    123456789012345678_Berserk.png
+
+For names containing underscores, use:
+    ArtistCode__Character_Name.png
+
+Example:
+    123456789012345678__Dragon_Soul.png
+
+Optional credit markers:
+    _wdy
+    _hrdw
+    _wdy_hrdw
+
+This TXT file is intentionally tracked by Git.
+Real images in this folder are ignored by .gitignore.
