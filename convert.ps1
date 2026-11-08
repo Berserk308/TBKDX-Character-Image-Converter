@@ -1,7 +1,8 @@
-﻿# Character Image Converter v2.0.7 | Windows PowerShell 5.1 / PowerShell 7+
+﻿# Character Image Converter v2.1.0 | Windows PowerShell 5.1 / PowerShell 7+
 # Requires ImageMagick 7 (magick).
-# Smart matching by ArtistCode + CharacterName; unmatched files keep the old
-# alphabetical-by-position grouping, without mixing tagged and untagged files.
+# Smart matching by CharacterName_ArtistID (preferred), or legacy ID_CharacterName.
+# Untagged source files are skipped by default; -IncludeLegacy restores positional matching.
+# -CleanOutput explicitly removes prior output folders without touching source artwork.
 # Output PNGs keep transparency; solid near-white corner-connected backgrounds
 # are removed when enabled. Pre-sized transparent PNGs are copied byte-for-byte.
 # Skips unnecessary scaling: Spawn 720x720, Icon 128x128, and ONLY Art
@@ -14,6 +15,11 @@
 # preserving enclosed white/cream details inside the character.
 # If a white region in the character touches the external background, automatic
 # removal cannot distinguish it and may remove that connected region.
+param(
+    [switch]$IncludeLegacy,
+    [switch]$CleanOutput
+)
+
 $ErrorActionPreference = 'Stop'
 
 $root = $PSScriptRoot
@@ -48,79 +54,58 @@ function Test-Code([string]$value) {
 }
 
 function Get-FileMetadata([string]$baseName) {
-    # Priority 1: explicit double-underscore format, with optional prefix/suffix:
-    #   123__Berserk
-    #   A123__Berserk__final
-    #   raw__123__Berserk
-    #   raw__123__Dragon_Soul__final
-    # For 3 fields, a known leading prefix or a digit in the middle token
-    # disambiguates PREFIX__CODE__CHARACTER versus CODE__CHARACTER__SUFFIX.
-    if ($baseName.Contains('__')) {
-        $parts = @($baseName -split '__')
-        $codeIndex = -1
-        if ($parts.Count -eq 2 -and (Test-Code $parts[0])) {
-            $codeIndex = 0
-        }
-        elseif ($parts.Count -eq 3) {
-            $knownPrefix = $parts[0] -match '^(?i:raw|src|source|draft|final|render|sketch|preview|icon|spawn|art|artcard|card|image|img|drawing|export)$'
-            if ((Test-Code $parts[1]) -and ($knownPrefix -or $parts[1] -match '[0-9]') -and
-                -not [string]::IsNullOrWhiteSpace($parts[2])) {
-                $codeIndex = 1
-            }
-            elseif (Test-Code $parts[0]) {
-                $codeIndex = 0
-            }
-        }
-        elseif ($parts.Count -eq 4 -and (Test-Code $parts[1])) {
-            $codeIndex = 1
-        }
-        if ($codeIndex -ge 0 -and ($codeIndex + 1) -lt $parts.Count -and
-            -not [string]::IsNullOrWhiteSpace($parts[$codeIndex + 1])) {
-            return [pscustomobject]@{
-                Code = $parts[$codeIndex].Trim()
-                Character = $parts[$codeIndex + 1].Trim()
-            }
-        }
-        return $null  # Never guess an ambiguous malformed explicit pattern.
+    # Preferred: CharacterName_ArtistID (15-25 digit Discord ID), including names
+    # with underscores and accidental leading/trailing underscores.
+    # Also supports CharacterName__ShortCode (explicit delimiter) and existing
+    # ArtistCode_CharacterName or ArtistCode__CharacterName formats.
+    $candidate = $baseName.Trim().Trim('_')
+    if ([string]::IsNullOrWhiteSpace($candidate)) { return $null }
+
+    # Remove optional standalone writing markers at the end. Credit detection
+    # still inspects the original filenames in Test-HasWdy/Test-HasHrdw.
+    while ($candidate -match '(?i)_{1,2}(?:wdy|hrdw)$') {
+        $candidate = $candidate -replace '(?i)_{1,2}(?:wdy|hrdw)$', ''
+        $candidate = $candidate.TrimEnd('_')
     }
 
-    # Priority 2: single-underscore format. In particular, ID_Name.png
-    # needs NO prefix or suffix. The code may be all digits (Discord IDs)
-    # or letters+digits; the digits requirement prevents random two-word
-    # filenames from accidentally becoming metadata. Pure-letter codes can
-    # be written with the explicit __ syntax above.
-    # For single underscores, the first segment AFTER the code is treated
-    # as the name, and any additional segments are optional suffixes.
-    # Therefore, use __ or spaces for character names with underscores.
-    $tokens = @($baseName -split '_')
-    if ($tokens.Count -lt 2) { return $null }
+    # Backwards-compatible explicit export suffix and leading source prefix.
+    $candidate = $candidate -replace '(?i)__(?:final|draft|render|preview|export)$', ''
+    $candidate = $candidate -replace '^(?i:raw|src|source|draft|final|render|sketch|preview|icon|spawn|art|artcard|card|image|img|drawing|export)__', ''
+    $candidate = $candidate.Trim('_')
+    if ([string]::IsNullOrWhiteSpace($candidate)) { return $null }
 
-    $codeIndex = -1
-    # Prefer long numeric IDs even if a numeric prefix (e.g. a year) exists.
-    for ($j = 0; $j -lt $tokens.Count - 1; $j++) {
-        if ($tokens[$j] -match '^[0-9]{15,25}$' -and
-            -not [string]::IsNullOrWhiteSpace($tokens[$j + 1])) {
-            $codeIndex = $j
-            break
+    # New order. Do not mistake arbitrary short numbers (e.g. IMG_9642)
+    # for Discord IDs: short codes must use an explicit double underscore.
+    if ($candidate -match '^(?<character>.+?)_+(?<code>[0-9]{15,25})$') {
+        $character = $Matches['character'].Trim('_').Trim()
+        if (-not [string]::IsNullOrWhiteSpace($character)) {
+            return [pscustomobject]@{ Code = $Matches['code']; Character = $character }
         }
     }
-    if ($codeIndex -lt 0) {
-        for ($j = 0; $j -lt $tokens.Count - 1; $j++) {
-            if ($tokens[$j] -match '^[A-Za-z0-9]*[0-9][A-Za-z0-9]*$' -and
-                -not [string]::IsNullOrWhiteSpace($tokens[$j + 1])) {
-                $codeIndex = $j
-                break
-            }
+    if ($candidate -match '^(?<character>.+)__(?<code>[A-Za-z0-9]*[0-9][A-Za-z0-9]*)$') {
+        $character = $Matches['character'].Trim('_').Trim()
+        if (-not [string]::IsNullOrWhiteSpace($character)) {
+            return [pscustomobject]@{ Code = $Matches['code']; Character = $character }
         }
     }
-    if ($codeIndex -lt 0) { return $null }
 
-    return [pscustomobject]@{
-        Code = $tokens[$codeIndex].Trim()
-        Character = $tokens[$codeIndex + 1].Trim()
+    # Old order, including 123__Dragon_Soul, raw__123__Dragon_Soul,
+    # 123_Dragon_Soul, and short/alphanumeric codes with digits.
+    if ($candidate -match '^(?<code>[A-Za-z0-9]*[0-9][A-Za-z0-9]*)_+(?<character>.+)$') {
+        $character = $Matches['character'].Trim('_').Trim()
+        if (-not [string]::IsNullOrWhiteSpace($character)) {
+            return [pscustomobject]@{ Code = $Matches['code']; Character = $character }
+        }
     }
+    # Purely alphabetical artist codes are allowed only in explicit CODE__NAME.
+    if ($candidate -match '^(?<code>[A-Za-z]+)__(?<character>.+)$') {
+        $character = $Matches['character'].Trim('_').Trim()
+        if (-not [string]::IsNullOrWhiteSpace($character)) {
+            return [pscustomobject]@{ Code = $Matches['code']; Character = $character }
+        }
+    }
+    return $null
 }
-
 
 function Test-HasWdy($files) {
     foreach ($item in $files.Values) {
@@ -391,13 +376,26 @@ foreach ($category in $categories) {
 }
 
 New-Item -ItemType Directory -Path $outputRoot -Force | Out-Null
+if ($CleanOutput) {
+    # Explicit opt-in: clear previously generated character folders, including
+    # stale legacy folders from older versions. Never touch input artwork.
+    Get-ChildItem -LiteralPath $outputRoot -Directory | ForEach-Object {
+        Remove-Item -LiteralPath $_.FullName -Recurse -Force
+    }
+    $oldReport = Join-Path $outputRoot '_conversion_report.txt'
+    if (Test-Path -LiteralPath $oldReport -PathType Leaf) {
+        Remove-Item -LiteralPath $oldReport -Force
+    }
+    Write-Host 'Output precedente ripulito (-CleanOutput).' -ForegroundColor Yellow
+}
 $usedNames = @{}
 $report = New-Object 'System.Collections.Generic.List[string]'
 $createdImages = 0
 $errors = 0
 $createdFolders = 0
 $report.Add('CHARACTER IMAGE CONVERTER - REPORT') | Out-Null
-$report.Add('Abbinamento: ID_Nome e altri formati riconosciuti; poi indice alfabetico solo per i file senza metadati.') | Out-Null
+$report.Add('Abbinamento: Nome_ArtistID (preferito), ID_Nome (legacy) e formati espliciti con __.') | Out-Null
+$report.Add(("Legacy alfabetico: {0}; ripulitura output: {1}" -f $IncludeLegacy.IsPresent, $CleanOutput.IsPresent)) | Out-Null
 $report.Add('') | Out-Null
 
 Write-Host ("Spawn: {0} | artCard: {1} | Icon: {2}" -f $counts['Spawn'], $counts['artCard'], $counts['Icon'])
@@ -440,30 +438,47 @@ foreach ($key in @($taggedGroups.Keys | Sort-Object)) {
     }
 }
 
-# Legacy mode: untagged files are paired ONLY with other untagged files,
-# each ordered alphabetically inside its original category.
-$maxFallback = [Math]::Max($untagged['Spawn'].Count, [Math]::Max($untagged['artCard'].Count, $untagged['Icon'].Count))
-for ($i = 0; $i -lt $maxFallback; $i++) {
-    $num = $i + 1
-    $folderName = Get-FreeName "Character_$num"
-    $selected = @{}
+# Untagged files are skipped by default, so stray tests like `u` or `Metre`
+# cannot accidentally become a character. Old positional matching is opt-in.
+$untaggedCount = 0
+foreach ($category in $categories) {
+    $untaggedCount += $untagged[$category].Count
+}
+if ($IncludeLegacy) {
+    $maxFallback = [Math]::Max($untagged['Spawn'].Count, [Math]::Max($untagged['artCard'].Count, $untagged['Icon'].Count))
+    for ($i = 0; $i -lt $maxFallback; $i++) {
+        $num = $i + 1
+        $folderName = Get-FreeName "Character_$num"
+        $selected = @{}
+        foreach ($category in $categories) {
+            $selected[$category] = $null
+            if ($i -lt $untagged[$category].Count) {
+                $selected[$category] = $untagged[$category][$i]
+            }
+        }
+        Convert-Group -folderName $folderName -files $selected -artistCode ''
+        $createdFolders++
+    }
+}
+elseif ($untaggedCount -gt 0) {
+    Write-Host "Ignorati $untaggedCount file senza metadati validi. Usa -IncludeLegacy per il vecchio abbinamento." -ForegroundColor Yellow
+    $report.Add('File ignorati (assenza di metadati):') | Out-Null
     foreach ($category in $categories) {
-        $selected[$category] = $null
-        if ($i -lt $untagged[$category].Count) {
-            $selected[$category] = $untagged[$category][$i]
+        foreach ($file in $untagged[$category]) {
+            $report.Add("  $category`: $($file.Name)") | Out-Null
         }
     }
-    Convert-Group -folderName $folderName -files $selected -artistCode ''
-    $createdFolders++
+    $report.Add('') | Out-Null
 }
 
 $report.Add("Totale cartelle elaborate: $createdFolders") | Out-Null
 $report.Add("Totale immagini generate: $createdImages") | Out-Null
+$report.Add("File senza metadati validi: $untaggedCount") | Out-Null
 $report.Add("Errori ImageMagick: $errors") | Out-Null
 $reportPath = Join-Path $outputRoot '_conversion_report.txt'
 Set-Content -LiteralPath $reportPath -Value $report -Encoding UTF8
 
 Write-Host "`nCompletato: $createdFolders cartelle; $createdImages PNG generati; errori: $errors" -ForegroundColor Green
 Write-Host "Dettagli: $reportPath"
-Write-Host 'NOTA: le vecchie cartelle output non sono cancellate automaticamente. Leggi README.'
+Write-Host 'NOTA: per eliminare le vecchie cartelle output usa -CleanOutput; per il matching alfabetico usa -IncludeLegacy.'
 if ($errors -gt 0) { exit 1 }
